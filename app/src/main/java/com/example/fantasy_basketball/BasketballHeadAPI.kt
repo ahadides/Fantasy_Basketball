@@ -33,7 +33,8 @@ data class SearchPlayersRequest(
 data class Player(
     val playerId: String,
     val firstName: String,
-    val lastName: String
+    val lastName: String,
+    val headshotUrl: String
 )
 
 data class PlayerListResponse(
@@ -55,7 +56,8 @@ data class PlayerAveragesResponse(
     val threePointMade: Double,
     val threePointAttempted: Double,
     val personalFouls: Double,
-    val turnovers: Double
+    val turnovers: Double,
+    val headshotUrl: String
 )
 
 

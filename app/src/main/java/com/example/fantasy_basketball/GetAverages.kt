@@ -1,23 +1,43 @@
 package com.example.fantasy_basketball
 
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.google.gson.Gson
+import com.google.gson.JsonSyntaxException
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import retrofit2.Response
+import okhttp3.RequestBody.Companion.create
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import retrofit2.Call
+import retrofit2.Callback
 import java.io.IOException
 
 
 suspend fun fetchPlayerStatsForLastSeason(playerName: String): PlayerAveragesResponse? {
     return withContext(Dispatchers.IO) {
         try {
-            val playerId = fetchPlayerIdByName(playerName)
+            val playerData = fetchPlayerIdByName(playerName)
+            val playerId = playerData?.first
+            val headshotUrl = playerData?.second
+
             if (playerId != null) {
                 val seasonType = "Regular" // Can be changed to "Playoffs" if needed
                 val seasonId = "2023-2024" // Specify the season
@@ -56,7 +76,8 @@ suspend fun fetchPlayerStatsForLastSeason(playerName: String): PlayerAveragesRes
                             threePointMade = statsJson.optDouble("threePointFieldGoalsMadePerGame", 0.0),
                             threePointAttempted = statsJson.optDouble("threePointFieldGoalAttemptsPerGame", 0.0),
                             personalFouls = statsJson.optDouble("personalFoulsPerGame", 0.0),
-                            turnovers = statsJson.optDouble("turnoversPerGame", 0.0)
+                            turnovers = statsJson.optDouble("turnoversPerGame", 0.0),
+                            headshotUrl = headshotUrl.toString()
                         )
                     }
                 }
@@ -69,7 +90,8 @@ suspend fun fetchPlayerStatsForLastSeason(playerName: String): PlayerAveragesRes
 }
 
 
-suspend fun fetchPlayerIdByName(playerName: String): String? {
+
+suspend fun fetchPlayerIdByName(playerName: String): Pair<String, String>? {
     return withContext(Dispatchers.IO) {
         try {
             // Split the player's full name into first name and last name
@@ -111,8 +133,8 @@ suspend fun fetchPlayerIdByName(playerName: String): String? {
 
                 if (playerListResponse.body != null && playerListResponse.body.isNotEmpty()) {
                     val player = playerListResponse.body.first()
-                    println("Player found: ${player.firstName} ${player.lastName}, ID: ${player.playerId}")
-                    return@withContext player.playerId
+                    println("Player found: ${player.firstName} ${player.lastName}, ID: ${player.playerId}, headshotURL: ${player.headshotUrl}")
+                    return@withContext Pair(player.playerId, player.headshotUrl)
                 } else {
                     println("No player found with name: $playerName")
                 }
@@ -145,6 +167,7 @@ fun displayPlayerStats(playerName: String) {
             println("3-Point Attempted: ${stats.threePointAttempted}")
             println("Personal Fouls: ${stats.personalFouls}")
             println("Turnovers: ${stats.turnovers}")
+            println("Headshot URL: ${stats.headshotUrl}")
         } else {
             println("Failed to fetch stats for $playerName.")
         }
@@ -207,7 +230,7 @@ fun fetchAndPrintAllPlayers() {
 }
 
 
-
+/*
 
 suspend fun fetchAndPrintPlayersWithStatsForSeason(season: String) {
     val client = OkHttpClient()
@@ -317,7 +340,8 @@ suspend fun fetchPlayerStatsForSeason(playerId: String, season: String): PlayerA
                         threePointMade = statsJson.optDouble("threePointFieldGoalsMadePerGame", 0.0),
                         threePointAttempted = statsJson.optDouble("threePointFieldGoalAttemptsPerGame", 0.0),
                         personalFouls = statsJson.optDouble("personalFoulsPerGame", 0.0),
-                        turnovers = statsJson.optDouble("turnoversPerGame", 0.0)
+                        turnovers = statsJson.optDouble("turnoversPerGame", 0.0),
+                        headshotURL = headshotURL
                     )
                 }
             }
@@ -333,3 +357,76 @@ fun displayPlayersWithStatsForSeason(season: String) {
         fetchAndPrintPlayersWithStatsForSeason(season)
     }
 }
+
+suspend fun fetchAllPlayersAsArray(): Array<Player>? {
+    val client = OkHttpClient()
+    val mediaType = "application/json".toMediaType()
+    val requestBody = """
+        {
+            "pageSize": 100
+        }
+    """.trimIndent().toRequestBody(mediaType)
+
+    val request = Request.Builder()
+        .url("https://basketball-head.p.rapidapi.com/players")
+        .post(requestBody)
+        .addHeader("X-RapidAPI-Key", "a0ac93dc3amsh37d315dd4ab6990p119d93jsn2d0bf27cf642")
+        .addHeader("X-RapidAPI-Host", "basketball-head.p.rapidapi.com")
+        .addHeader("Content-Type", "application/json")
+        .build()
+
+    return withContext(Dispatchers.IO) {
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    println("Error fetching players: ${response.body?.string()}")
+                    return@withContext null
+                }
+
+                val responseData = response.body?.string() ?: return@withContext null
+                val jsonObject = JSONObject(responseData)
+                val playersArray = jsonObject.getJSONArray("body")
+
+                val players = Array(playersArray.length()) { Player("", "", "", "") }
+
+                for (i in 0 until playersArray.length()) {
+                    val playerJson = playersArray.getJSONObject(i)
+                    players[i] = Player(
+                        playerId = playerJson.getString("playerId"),
+                        firstName = playerJson.getString("firstName"),
+                        lastName = playerJson.getString("lastName"),
+                        headshotURL = playerJson.getString("headshotUrl")
+                    )
+                }
+                println(playersArray.length())
+                return@withContext players
+
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return@withContext null
+        }
+    }
+}
+
+@Composable
+fun PlayerList() {
+    var playersArray by remember { mutableStateOf<Array<Player>?>(null) }
+
+    LaunchedEffect(Unit) {
+        playersArray = fetchAllPlayersAsArray()
+    }
+
+
+    if (playersArray == null) {
+        Text(text = "Loading players...")
+    } else {
+        Column {
+            for (player in playersArray!!) {
+                Text(text = "${player.firstName} ${player.lastName}")
+            }
+        }
+    }
+}
+*/
+
